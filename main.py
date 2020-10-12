@@ -1,34 +1,37 @@
-import re  # For preprocessing
-import pandas as pd  # For data handling
-from time import time  # To time our operations
-from collections import defaultdict  # For word frequency
-
-import spacy  # For preprocessing
-
-import gzip, json # required to open dataset (gzip) and grab each data point (json) 
-
-import logging  # Setting up the loggings to monitor gensim
-logging.basicConfig(format="%(levelname)s - %(asctime)s: %(message)s", datefmt= '%H:%M:%S', level=logging.INFO)
-
-import multiprocessing
 from gensim.models import Word2Vec
 
-import random
+from time import time  # to time our operations
+import gzip, json # required to open dataset (gzip) and grab each data point (json) 
 
-cores = multiprocessing.cpu_count() # Count the number of cores in a computer
+import multiprocessing 
+cores = multiprocessing.cpu_count() # count the number of cores in a computer (used in creation of Word2Vec model)
+
+
+
+## RANDOM LINES OF CODE ##
+
+#import random
+#random.sample(all_poetryLines, 8)
+#w2v_model.init_sims(replace=True) # makes the model more memory efficient (pre-computes L2 norm)
+# run 'w2v_model.wv.vocab' to get a list of the words in the machine's vocabulary
 
 
 ### GLLOBAL VARIABLES ###
 
-# total amount of poetry lines loaded from Gutenberg dataset
-w2v_model = Word2Vec(min_count=2,
-                        window=2,
-                        size=300,
-                        sample=6e-5, 
-                        alpha=0.03, 
-                        min_alpha=0.0007, 
-                        negative=20,
+create_w2vmodel = False
+
+""" w2v_model = Word2Vec(min_count=2, # ignores all words with total frequency lower than this
+                        window=2, # maximum distance between the current and predicted word within a sentence
+                        size=300, # dimensionality of word vectors
+                        sample=6e-5, # the threshold for configuring which higher-frequency words are randomly downsampled, useful range is (0, 1e-5)
+                        alpha=0.03, # initial learning rate
+                        min_alpha=0.0007, # learning rate will linearly drop to min_alpha as training progresses
+                        negative=20, # if >0, negative sampling will be used; specifies how many "noise words" should be drawn (usually between 5-20). If set to 0, no negative sampling is used.
                         workers=cores-1)
+ """
+# see full list of parameters here: https://radimrehurek.com/gensim/models/word2vec.html#gensim.models.word2vec.Word2VecVocab
+
+                    
 
 ### ----------------- ###
 
@@ -54,21 +57,34 @@ def dataLoader():
 
 
 if __name__ == '__main__':
-    t = time()
-
+    
     ## LOADING THE DATA ##
     all_poetryLines = dataLoader()
 
-    random.sample(all_poetryLines, 8)
+    if create_w2vmodel:
 
-    ## BUILDING WORD2VEC MODEL ##
-    w2v_model.build_vocab(all_poetryLines, progress_per=10000)
-    print('Time to build vocab: {} mins'.format(round((time() - t) / 60, 2)))
+        ## INITIALIZING MODEL ##
+        w2v_model = Word2Vec(min_count=2,
+                        window=2,
+                        size=300, 
+                        sample=6e-5,
+                        alpha=0.03,
+                        min_alpha=0.0007,
+                        negative=20,
+                        workers=cores-1)
+        
+        ## BUILDING VOCABULARY ##
+        t = time()
+        w2v_model.build_vocab(all_poetryLines, progress_per=10000)
+        print('Time to build vocab: {} mins'.format(round((time() - t) / 60, 2)))
 
-    t = time()
-    w2v_model.train(all_poetryLines, total_examples=w2v_model.corpus_count, epochs=30, report_delay=1)
-    print('Time to train the model: {} mins'.format(round((time() - t) / 60, 2)))
+        ## TRAINING WORD VECTORS ##
+        t = time()
+        w2v_model.train(all_poetryLines, total_examples=w2v_model.corpus_count, epochs=30, report_delay=1)
+        print('Time to train the model: {} mins'.format(round((time() - t) / 60, 2)))
 
-    w2v_model.init_sims(replace=True) # makes the model more memory efficient (pre-computes L2 norm)
+
+
+    
 
    
