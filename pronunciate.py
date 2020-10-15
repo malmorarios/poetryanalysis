@@ -2,10 +2,12 @@ import re # provides regular expression matching operations
 from pathlib import Path
 import random
 import numpy as np
+import csv
 
 # To make sure our kernel runs all the way through and gets saved,
 # we'll trim some things back and skip training
 IS_KAGGLE = True 
+RECORD_SKIPPEDWORDS = True
 
 CMU_DICT_PATH = Path("input/cmudict/cmudict-0.7b.txt")
 #CMU_SYMBOLS_PATH = os.path.join(
@@ -22,7 +24,19 @@ MAX_DICT_WORD_LEN = 20
 MIN_DICT_WORD_LEN = 2
 
 
-def load_clean_phonetic_dictionary(): # defining functions inside this function definition means you cannot call them outside of this function!
+def makeSameLength(LoL):
+    """ makes all lists inside a list of lists the same length by continuously appending empty strings """
+    maxlength = 0
+    for list_obj in LoL:
+        if len(list_obj) > maxlength:
+            maxlength = list_obj
+    
+    for list_obj in LoL:
+        while len(list_obj) < maxlength:
+            list_obj.append("")
+
+
+def load_clean_phonetic_dictionary(RECORD_SKIPPEDWORDS): # defining functions inside this function definition means you cannot call them outside of this function!
 
     def is_alternate_pho_spelling(word):
         """ returns True / False if word is an alternate phonetic spelling """
@@ -32,20 +46,19 @@ def load_clean_phonetic_dictionary(): # defining functions inside this function 
     def should_skip(word):
         """ returns True if word should should be skipped; False otherwise """
         if not word[0].isalpha():  # skip symbol + punctuation words and their pronunciations
-            return True
+            return True, 1
         if word[-1] == '.':  # skip abbreviated words TODO (10/12/2020): do we want to do this? e.g. "Mr." or "Dr." ?
-            return True
-        #if re.search(ILLEGAL_CHAR_REGEX, word): # skip word if it has numbers or symbols
-            #return True
+            return True, 2
+        if re.search(ILLEGAL_CHAR_REGEX, word): # skip word if it has numbers or symbols
+            return True, 3
         if len(word) > MAX_DICT_WORD_LEN: # skip word if too long
-            return True
+            return True, 4
         if len(word) < MIN_DICT_WORD_LEN: # skip word if too short
-            return True
-        return False
+            return True, 5
+        return False, 0
 
-    REskips = 0
-    REskips_wordList = []
 
+    skippedwords_notalpha, skippedwords_abbrev, skippedwords_regex, skippedwords_exceedsmax, skippedwords_lessthanmin = [], [], [], [], []
     phonetic_dict = {}
     with open(CMU_DICT_PATH, encoding="ISO-8859-1") as cmu_dict: 
         for line in cmu_dict:
@@ -62,20 +75,21 @@ def load_clean_phonetic_dictionary(): # defining functions inside this function 
             if is_alternate_pho_spelling(word):
                 word = word[:word.find('(')] # word.find(substring) returns the index of the FIRST occurence of substring in word. If not found, returns -1. There is also .rfind() which does this but starting from the end of the string!
 
-            if should_skip(word):
+            if should_skip(word)[0]:
+                if RECORD_SKIPPEDWORDS:
+                    if should_skip(word)[1] == 0:
+                        continue
+                    elif should_skip(word)[1] == 1:
+                        skippedwords_notalpha.append(word)
+                    elif should_skip(word)[1] == 2:
+                        skippedwords_abbrev.append(word)
+                    elif should_skip(word)[1] == 3:
+                        skippedwords_regex.append(word)
+                    elif should_skip(word)[1] == 4:
+                        skippedwords_exceedsmax.append(word)
+                    elif should_skip(word)[1] == 5:
+                        skippedwords_lessthanmin.append(word)
                 continue
-            
-            # testing to see what specifically ILLEGAL_CHAR_REGEX skips over
-            if re.search(ILLEGAL_CHAR_REGEX, word):
-                REskips += 1
-                REskips_wordList.append(word)
-                print("Skipping the word ", word, " because it falls under [^A-Z-'.]")
-                print("You have skipped ", REskips, " many words due to ILLEGAL_CHAR_REGEX!\n")
-                if REskips > 10:
-                    print("REskips has exceeded limit. Breaking out of the main loop...")
-                    break
-                else:
-                    continue
 
             if word not in phonetic_dict:
                 phonetic_dict[word] = [] # initializes (key, value) = (word, []) pair in dict. NOTICE you are not appending the pronunciation of the word directly! Just starting with an empty list! See note below.
@@ -87,18 +101,21 @@ def load_clean_phonetic_dictionary(): # defining functions inside this function 
             #   append the new pronunciation to the existing word's entry in the pronunciation_dict!
             phonetic_dict[word].append(phonetic) 
 
-    # testing purposes
-    if REskips > 10:
-        print("Here are the words that you skipped over because of [^A-Z-'.]:\n", REskips_wordList)
-        if IS_KAGGLE: # limit dataset to 5,000 words
-            phonetic_dict = {key:phonetic_dict[key] 
-                         for key in random.sample(list(phonetic_dict.keys()), 5)}
-        return phonetic_dict
-
-    else:
         if IS_KAGGLE: # limit dataset to 5,000 words
             phonetic_dict = {key:phonetic_dict[key] 
                          for key in random.sample(list(phonetic_dict.keys()), 5000)}
+
+        # recording all skipped words into a .csv file
+        if RECORD_SKIPPEDWORDS:
+            skippedwords = [skippedwords_notalpha, skippedwords_abbrev, skippedwords_regex, skippedwords_exceedsmax, skippedwords_lessthanmin]
+            with open('skippedwords.csv', 'w', newline='') as csvfile:
+                fieldnames = ["", "word[0].isalpha() == False", "word[-1] == '.'", "matches REGEX [^A-Z-'.]", "Exceeds max word length", "Less than min word length"]
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                for i in range(len(skippedwords)):
+                    for word in skippedwords[i]:
+                        writer.writerow({fieldnames[i+1]: word})
+
     return phonetic_dict
 
 phonetic_dict = load_clean_phonetic_dictionary()
